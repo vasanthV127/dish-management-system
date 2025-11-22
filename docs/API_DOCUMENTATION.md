@@ -1,19 +1,25 @@
 # API Documentation
 
-Base URL: `http://localhost:5000/api`
+Base URL: `http://localhost:8000/api`
+
+## Interactive API Documentation
+
+FastAPI provides automatic interactive API documentation:
+- **Swagger UI:** http://localhost:8000/docs
+- **ReDoc:** http://localhost:8000/redoc
 
 ## Endpoints
 
 ### 1. Get All Dishes
 
-Retrieve all dishes from the database.
+Retrieve all dishes from the database with timestamps.
 
 **Endpoint:** `GET /api/dishes`
 
 **Request:**
 ```http
 GET /api/dishes HTTP/1.1
-Host: localhost:5000
+Host: localhost:8000
 ```
 
 **Response:** `200 OK`
@@ -22,15 +28,15 @@ Host: localhost:5000
   {
     "dishId": 1,
     "dishName": "Pizza Margherita",
-    "imageUrl": "https://example.com/pizza.jpg",
+    "imageUrl": "https://images.unsplash.com/photo-1604068549290-dea0e4a305ca?w=400",
     "isPublished": true,
     "createdAt": "2025-11-22T10:00:00.000Z",
     "updatedAt": "2025-11-22T10:00:00.000Z"
   },
   {
     "dishId": 2,
-    "dishName": "Pasta Carbonara",
-    "imageUrl": "https://example.com/pasta.jpg",
+    "dishName": "Sushi Platter",
+    "imageUrl": "https://images.unsplash.com/photo-1579584425555-c3ce17fd4351?w=400",
     "isPublished": false,
     "createdAt": "2025-11-22T10:00:00.000Z",
     "updatedAt": "2025-11-22T10:00:00.000Z"
@@ -51,15 +57,15 @@ Host: localhost:5000
 
 Toggle the `isPublished` status of a specific dish.
 
-**Endpoint:** `PATCH /api/dishes/:id/toggle`
+**Endpoint:** `PATCH /api/dishes/{id}/toggle`
 
 **Parameters:**
-- `id` (path parameter): The dish ID to toggle
+- `id` (path parameter): The dish ID (integer) to toggle
 
 **Request:**
 ```http
 PATCH /api/dishes/1/toggle HTTP/1.1
-Host: localhost:5000
+Host: localhost:8000
 ```
 
 **Response:** `200 OK`
@@ -67,7 +73,7 @@ Host: localhost:5000
 {
   "dishId": 1,
   "dishName": "Pizza Margherita",
-  "imageUrl": "https://example.com/pizza.jpg",
+  "imageUrl": "https://images.unsplash.com/photo-1604068549290-dea0e4a305ca?w=400",
   "isPublished": false,
   "createdAt": "2025-11-22T10:00:00.000Z",
   "updatedAt": "2025-11-22T10:30:00.000Z"
@@ -92,28 +98,65 @@ Host: localhost:5000
 
 ---
 
-## Socket.io Events
+## WebSocket Endpoint
 
-### Event: `dishStatusChanged`
+### Endpoint: `ws://localhost:8000/ws`
 
-Emitted to all connected clients when any dish status is toggled.
+Real-time updates endpoint using native WebSocket protocol.
 
-**Event Data:**
+**Connection:**
+```javascript
+const socket = new WebSocket('ws://localhost:8000/ws');
+
+socket.onopen = () => {
+  console.log('WebSocket connected');
+};
+
+socket.onmessage = (event) => {
+  const message = JSON.parse(event.data);
+  console.log('Received:', message);
+};
+```
+
+### Message: `dishStatusChanged`
+
+Broadcast to all connected clients when any dish status is toggled.
+
+**Message Structure:**
 ```json
 {
-  "dishId": 1,
-  "dishName": "Pizza Margherita",
-  "imageUrl": "https://example.com/pizza.jpg",
-  "isPublished": false
+  "type": "dishStatusChanged",
+  "data": {
+    "dishId": 1,
+    "dishName": "Pizza Margherita",
+    "imageUrl": "https://images.unsplash.com/photo-1604068549290-dea0e4a305ca?w=400",
+    "isPublished": false
+  }
 }
 ```
 
-**Client-side listener:**
+**React Hook Example:**
 ```javascript
-socket.on('dishStatusChanged', (dish) => {
-  console.log('Dish updated:', dish);
-  // Update UI with new dish data
-});
+import { useEffect, useState } from 'react';
+
+export const useWebSocket = (url, onMessage) => {
+  const [isConnected, setIsConnected] = useState(false);
+  
+  useEffect(() => {
+    const ws = new WebSocket(url);
+    
+    ws.onopen = () => setIsConnected(true);
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      onMessage(message);
+    };
+    ws.onclose = () => setIsConnected(false);
+    
+    return () => ws.close();
+  }, [url, onMessage]);
+  
+  return { isConnected };
+};
 ```
 
 ---
@@ -145,10 +188,16 @@ Currently no rate limiting implemented. Recommended for production:
 ## CORS Policy
 
 **Allowed Origins (Development):**
-- `http://localhost:5173` (Vite dev server)
-- `http://localhost:3000` (Alternative frontend)
+```python
+allow_origins=[
+    "http://localhost:5173",  # Vite dev server
+    "http://localhost:3000",  # Alternative frontend
+]
+allow_methods=["*"]
+allow_headers=["*"]
+```
 
-**Production:** Configure specific domain origins
+**Production:** Configure specific domain origins in environment variables
 
 ---
 
@@ -165,23 +214,53 @@ Currently no authentication required. For production, consider:
 
 **Get all dishes:**
 ```bash
-curl http://localhost:5000/api/dishes
+curl http://localhost:8000/api/dishes
 ```
 
 **Toggle dish status:**
 ```bash
-curl -X PATCH http://localhost:5000/api/dishes/1/toggle
+curl -X PATCH http://localhost:8000/api/dishes/1/toggle
+```
+
+**Test WebSocket (using websocat):**
+```bash
+websocat ws://localhost:8000/ws
 ```
 
 ---
 
-## Testing with Postman
+## Testing with Python
 
-1. Import collection from `/postman/dish-management.json`
-2. Set base URL to `http://localhost:5000`
-3. Test all endpoints
+**Using requests library:**
+```python
+import requests
+
+# Get all dishes
+response = requests.get('http://localhost:8000/api/dishes')
+print(response.json())
+
+# Toggle dish status
+response = requests.patch('http://localhost:8000/api/dishes/1/toggle')
+print(response.json())
+```
+
+**Using websockets library:**
+```python
+import asyncio
+import websockets
+import json
+
+async def test_websocket():
+    async with websockets.connect('ws://localhost:8000/ws') as websocket:
+        message = await websocket.recv()
+        print(f"Received: {json.loads(message)}")
+
+asyncio.run(test_websocket())
+```
 
 ---
 
-**API Version:** 1.0  
-**Last Updated:** November 22, 2025
+**API Version:** 2.0  
+**Framework:** FastAPI 0.104.1  
+**Last Updated:** November 23, 2025  
+**Author:** Vasanthakumar V

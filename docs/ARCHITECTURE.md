@@ -4,11 +4,11 @@
 
 The Dish Management System is a full-stack application built with a three-tier architecture:
 
-1. **Presentation Layer** (Frontend - React)
-2. **Application Layer** (Backend - Node.js/Express)
+1. **Presentation Layer** (Frontend - React + Vite)
+2. **Application Layer** (Backend - FastAPI + Python)
 3. **Data Layer** (PostgreSQL Database)
 
-With real-time communication powered by Socket.io.
+With real-time communication powered by native WebSockets.
 
 ## Architecture Diagram
 
@@ -17,31 +17,32 @@ With real-time communication powered by Socket.io.
 │                         CLIENT TIER                          │
 │  ┌────────────────────────────────────────────────────┐     │
 │  │         React Frontend (Port 5173)                  │     │
-│  │  - Dashboard UI                                     │     │
+│  │  - Dashboard UI with Tailwind CSS                   │     │
 │  │  - Dish Cards with Toggle Buttons                   │     │
-│  │  - Socket.io Client                                 │     │
+│  │  - Native WebSocket Client                          │     │
 │  └────────────────────────────────────────────────────┘     │
 └─────────────────────────────────────────────────────────────┘
                             │ HTTP/HTTPS
-                            │ WebSocket
+                            │ WebSocket (ws://)
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                      APPLICATION TIER                        │
 │  ┌────────────────────────────────────────────────────┐     │
-│  │    Node.js + Express Server (Port 5000)            │     │
+│  │    FastAPI + Uvicorn Server (Port 8000)            │     │
 │  │  ┌──────────────────────────────────────────┐     │     │
 │  │  │  REST API Routes                          │     │     │
 │  │  │  - GET /api/dishes                        │     │     │
-│  │  │  - PATCH /api/dishes/:id/toggle           │     │     │
+│  │  │  - PATCH /api/dishes/{id}/toggle          │     │     │
 │  │  └──────────────────────────────────────────┘     │     │
 │  │  ┌──────────────────────────────────────────┐     │     │
-│  │  │  Socket.io Server                         │     │     │
-│  │  │  - Broadcasts: dishStatusChanged          │     │     │
+│  │  │  WebSocket Endpoint                       │     │     │
+│  │  │  - ws://localhost:8000/ws                 │     │     │
+│  │  │  - ConnectionManager broadcasts updates   │     │     │
 │  │  └──────────────────────────────────────────┘     │     │
 │  │  ┌──────────────────────────────────────────┐     │     │
 │  │  │  Business Logic                           │     │     │
-│  │  │  - Dish Controller                        │     │     │
-│  │  │  - Validation & Error Handling            │     │     │
+│  │  │  - CRUD Operations (crud.py)              │     │     │
+│  │  │  - Pydantic Validation (schemas.py)       │     │     │
 │  │  └──────────────────────────────────────────┘     │     │
 │  └────────────────────────────────────────────────────┘     │
 └─────────────────────────────────────────────────────────────┘
@@ -66,49 +67,54 @@ With real-time communication powered by Socket.io.
 
 ## Technology Choices & Rationale
 
-### Backend: Node.js + Express
-- **Why:** Non-blocking I/O perfect for real-time applications
-- **Benefits:** Fast, scalable, same language as frontend (JavaScript)
-- **Alternatives considered:** Python (Flask/Django), Java (Spring Boot)
+### Backend: FastAPI (Python 3.12)
+- **Why:** Modern async framework, automatic API documentation, type safety
+- **Benefits:** Fast performance, built-in validation, excellent async support
+- **Alternatives considered:** Flask, Django, Node.js (Express)
 
 ### Database: PostgreSQL
 - **Why:** ACID compliance, reliability, excellent for structured data
 - **Benefits:** Strong data integrity, JSON support, free & open-source
 - **Alternatives considered:** MySQL, MongoDB (NoSQL)
 
-### ORM: Sequelize
-- **Why:** Mature ORM with TypeScript support, migrations, and validation
-- **Benefits:** Abstract SQL queries, auto-migrations, model validation
-- **Alternatives considered:** Prisma, TypeORM
+### ORM: SQLAlchemy
+- **Why:** Most mature Python ORM, excellent async support
+- **Benefits:** Powerful query builder, declarative models, migration support
+- **Alternatives considered:** Tortoise ORM, Peewee
 
-### Real-time: Socket.io
-- **Why:** Industry standard for WebSocket communication with fallbacks
-- **Benefits:** Auto-reconnection, room support, broad browser compatibility
-- **Alternatives considered:** Native WebSockets, Server-Sent Events (SSE)
+### Real-time: Native WebSockets
+- **Why:** FastAPI has built-in WebSocket support, no extra dependencies
+- **Benefits:** Lower overhead, direct protocol implementation, simpler setup
+- **Alternatives considered:** Socket.io (requires additional library), Server-Sent Events (SSE)
 
-### Frontend: React + Vite
+### Frontend: React 18 + Vite
 - **Why:** Component-based architecture, fast HMR with Vite
 - **Benefits:** Virtual DOM, huge ecosystem, excellent dev experience
 - **Alternatives considered:** Vue.js, Angular, Svelte
+
+### Styling: Tailwind CSS
+- **Why:** Utility-first CSS framework for rapid UI development
+- **Benefits:** No custom CSS needed, consistent design, small bundle size
+- **Alternatives considered:** Bootstrap, Material-UI, styled-components
 
 ## Data Flow
 
 ### 1. Fetch Dishes (GET Request)
 ```
-Client → HTTP GET /api/dishes → Express Router → Controller 
-→ Sequelize ORM → PostgreSQL → Response JSON → Client renders
+Client → HTTP GET /api/dishes → FastAPI Route → CRUD Function
+→ SQLAlchemy ORM → PostgreSQL → Pydantic Schema → JSON Response → Client renders
 ```
 
 ### 2. Toggle Dish Status (PATCH Request)
 ```
-Client → HTTP PATCH /api/dishes/:id/toggle → Express Router 
-→ Controller → Update DB → Socket.io broadcast → All clients update UI
+Client → HTTP PATCH /api/dishes/{id}/toggle → FastAPI Route
+→ CRUD Update → PostgreSQL → WebSocket Broadcast → All clients update UI
 ```
 
 ### 3. Real-Time Update Flow
 ```
-Backend DB Change → Trigger Event → Socket.io Server 
-→ Emit 'dishStatusChanged' → All Connected Clients → UI Update
+Backend DB Change → ConnectionManager.broadcast() → WebSocket Server
+→ Send JSON to all connections → All Connected Clients → UI Update
 ```
 
 ## Database Schema
@@ -177,39 +183,58 @@ Backend DB Change → Trigger Event → Socket.io Server
 
 ## Real-Time Architecture
 
-### Socket.io Communication
+### Native WebSocket Communication
 
 **Connection Flow:**
 ```
-1. Client connects → Socket.io handshake
-2. Server assigns socket ID
-3. Client listens to 'dishStatusChanged' event
-4. On dish toggle → Server emits to all sockets
-5. Clients update UI without page refresh
+1. Client connects → ws://localhost:8000/ws
+2. WebSocket handshake completes
+3. ConnectionManager stores active connection
+4. Client listens for incoming messages
+5. On dish toggle → Server broadcasts to all connections
+6. Clients parse JSON and update UI without page refresh
 ```
 
-**Event Schema:**
+**Message Schema:**
 ```javascript
 {
-  eventName: 'dishStatusChanged',
-  payload: {
-    dishId: 1,
-    isPublished: false,
-    timestamp: '2025-11-22T10:30:00Z'
+  "type": "dishStatusChanged",
+  "data": {
+    "dishId": 1,
+    "dishName": "Pizza Margherita",
+    "imageUrl": "https://images.unsplash.com/...",
+    "isPublished": false
   }
 }
+```
+
+**ConnectionManager Class:**
+```python
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Set[WebSocket] = set()
+    
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.add(websocket)
+    
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            await connection.send_json(message)
 ```
 
 ## Deployment Architecture
 
 ### Development
 ```
-localhost:5173 (Frontend) → localhost:5000 (Backend) → localhost:5432 (PostgreSQL)
+localhost:5173 (Frontend) → localhost:8000 (Backend) → localhost:5432 (PostgreSQL)
+                             ws://localhost:8000/ws (WebSocket)
 ```
 
 ### Production (Recommended)
 ```
-Vercel/Netlify (Frontend) → Railway/Render (Backend) → Managed PostgreSQL
+Vercel/Netlify (Frontend) → Railway/Render (Backend FastAPI) → Managed PostgreSQL
+                             wss://api.domain.com/ws (Secure WebSocket)
 ```
 
 ## Performance Optimization
@@ -243,10 +268,10 @@ Vercel/Netlify (Frontend) → Railway/Render (Backend) → Managed PostgreSQL
 
 ## Testing Strategy
 
-1. **Unit Tests:** Jest for backend logic
-2. **Integration Tests:** Supertest for API endpoints
+1. **Unit Tests:** pytest for backend logic and CRUD operations
+2. **Integration Tests:** TestClient (FastAPI) for API endpoints
 3. **E2E Tests:** Playwright for full user flows
-4. **Real-time Tests:** Socket.io-client for WebSocket testing
+4. **Real-time Tests:** websockets library for WebSocket testing
 
 ## Development Workflow
 
@@ -259,6 +284,6 @@ Vercel/Netlify (Frontend) → Railway/Render (Backend) → Managed PostgreSQL
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** November 22, 2025  
-**Author:** Vasanth
+**Document Version:** 2.0  
+**Last Updated:** November 23, 2025  
+**Author:** Vasanthakumar V
